@@ -29,13 +29,13 @@ class net(nn.Module):
 
 	def forward(self,x):
 		#初始化lstm中的各个参数(感觉不包括各个gate的w和b)
-		h0 = torch.zeros(self.n_layers*self.n_directions,self.batch_size,self.hidden_size)
-		c0 = torch.zeros(self.n_layers*self.n_directions,self.batch_size,self.hidden_size)
+		h0 = torch.zeros(self.n_layers*self.n_directions,self.batch_size,self.hidden_size).cuda()
+		c0 = torch.zeros(self.n_layers*self.n_directions,self.batch_size,self.hidden_size).cuda()
 
 		#device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 		#h0,c0 = h0.to(device),c0.to(device)
 
-		x = x.view(self.batch_size,1,-1)
+		x = x.view(self.batch_size,1,-1).cuda()
 		#x = x.to(device)
 
 		x,hn = self.lstm(x,(h0,c0))
@@ -68,24 +68,24 @@ def train(net,input_loader,label_loader,n_epochs=2):
 		total_loss = 0.0
 		for data in zip(input_loader,label_loader):
 			inputs,labels = data[0],data[1]
-			inputs,labels = inputs.float(),labels.float()
-
+			inputs = inputs.float()
+			#print(inputs,labels)
 			#采用GPU进行运算
-			device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-			inputs,labels = inputs.to(device),labels.to(device)
-			#inputs,labels = inputs.cuda(),labels.cuda()
+			#device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+			#inputs,labels = inputs.to(device),labels.to(device)
+			inputs_cuda,labels_cuda = inputs.cuda(),labels.cuda()
 			#print(type(inputs[0][0][0].item()),type(labels[0].item()))
 
 			#定义优化器
-			optimizer = optim.SGD(net.parameters(),lr=0.001)
+			optimizer = optim.SGD(net.parameters(),lr=0.01)
 			optimizer.zero_grad()
 
 			#定义损失函数
 			cri = nn.CrossEntropyLoss()
 
 			#forward计算损失和梯度
-			outputs = net(inputs)
-			loss = cri(outputs,labels)
+			outputs = net(inputs_cuda)
+			loss = cri(outputs,labels_cuda)
 			loss.backward(retain_graph=True)
 
 			#bp优化
@@ -98,3 +98,11 @@ def train(net,input_loader,label_loader,n_epochs=2):
 				total_loss = 0.0
 			i += 1
 	print('--------------Finished--------------')
+
+def main():
+	label_loader = get_data('label_all.npy',4)
+	input_loader = get_data('train_label_data_15dim.npy',4)
+	ls = net(15,4,256)
+	ls = ls.cuda()
+	train(ls,input_loader,label_loader)
+	return ls
