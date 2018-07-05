@@ -54,7 +54,7 @@ def get_data(filename,batch_size):
 	data_array = np.load(filename)
 	data_tensor = torch.from_numpy(data_array)
 	data_loader = torch.utils.data.DataLoader(data_tensor,batch_size=batch_size,\
-											  shuffle=False,num_workers=2)
+											  shuffle=False,num_workers=8)
 	return data_loader
 
 #定义损失函数
@@ -62,7 +62,7 @@ def get_data(filename,batch_size):
 #forward计算output
 #计算损失以及相应的偏导数(梯度) backward
 #用optimizer进行参数更新 step
-def train(net,input_loader,label_loader,n_epochs=2):
+def train(net,input_loader,label_loader,n_epochs=10):
 	i = 0
 	for epoch in range(n_epochs):
 		total_loss = 0.0
@@ -77,7 +77,7 @@ def train(net,input_loader,label_loader,n_epochs=2):
 			#print(type(inputs[0][0][0].item()),type(labels[0].item()))
 
 			#定义优化器
-			optimizer = optim.SGD(net.parameters(),lr=0.01)
+			optimizer = optim.SGD(net.parameters(),lr=0.004)
 			optimizer.zero_grad()
 
 			#定义损失函数
@@ -99,10 +99,58 @@ def train(net,input_loader,label_loader,n_epochs=2):
 			i += 1
 	print('--------------Finished--------------')
 
+
+#做一个简单的测试，不做cv
+#拿出labeled数据的前k个测试一下准确性
+def test(net,input_filename,label_filename,batch_size,k=10000):
+	input_loader = get_data(input_filename,batch_size)
+	label_loader = get_data(label_filename,batch_size)
+	i,n_right = 0,0
+	for data in zip(input_loader,label_loader):
+		if i >= k :
+			print('accuracy of test_set k=',k,'is',100*n_right/k,'%')
+			break
+		inputs,labels = data
+		inputs = inputs.float()
+
+		out = net(inputs)
+		labels = labels.cuda()
+		out = F.sigmoid(out)
+		outputs = torch.max(out,1)[1]
+		mid = outputs==labels
+		n_right += torch.sum(mid).item()
+
+		i += batch_size
+
+'''
+	#载入保存好的npy文件
+	input_numpy = np.load(input_filename)[:k]
+	label_numpy = np.load(label_filename)[:k]
+
+	#numpy→tensor转换，input从double_float转到float
+	inputs = torch.from_numpy(input_numpy)
+	inputs = inputs.float()
+	labels = torch.from_numpy(label_numpy)
+
+	#使用train好的模型进行预测，得出准确率
+	out = net(inputs)
+	labels = labels.cuda()   #因为放在gpu里跑出来的模型，所以out是tensor.cuda.float,因此labels也要保持相同type
+	out = F.sigmoid(out)
+	outputs = torch.max(out,1)[1]
+	mid = outputs==labels
+	n_right = torch.sum(mid)
+'''
+
+	
+
+
+
+
 def main():
-	label_loader = get_data('label_all.npy',4)
-	input_loader = get_data('train_label_data_15dim.npy',4)
-	ls = net(15,4,256)
+	label_loader = get_data('labels_200000.npy',2)
+	input_loader = get_data('train_50dim.npy',2)
+	ls = net(50,2,256)
 	ls = ls.cuda()
 	train(ls,input_loader,label_loader)
 	return ls
+
