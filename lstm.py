@@ -19,32 +19,37 @@ class net(nn.Module):
 		self.batch_size = batch_size
 		self.hidden_size = hidden_size
 		#self.sentence_size = sentence_size
+		self.embedding = nn.Embedding(125084+1,self.input_size,padding_idx=0)
 
 		#定义lstm部分
 		self.lstm = nn.LSTM(self.input_size,self.hidden_size,self.n_layers,batch_first=True)
 
 		#线性部分
-		self.fc1 = nn.Linear(hidden_size,128)
-		self.fc2 = nn.Linear(128,2)
+		self.fc1 = nn.Linear(hidden_size,1)
+		#self.fc2 = nn.Linear(128,2)
 
 	def forward(self,x):
+		#对采用数字表示的sentences进行embedding
+		x = self.embedding(x)
 		#初始化lstm中的各个参数(感觉不包括各个gate的w和b)
 		h0 = torch.zeros(self.n_layers*self.n_directions,self.batch_size,self.hidden_size).cuda()
 		c0 = torch.zeros(self.n_layers*self.n_directions,self.batch_size,self.hidden_size).cuda()
 
 		#device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-		#h0,c0 = h0.to(device),c0.to(device)
+		#h0,c0 = h0.to(device),c0.to(device) 
 
-		x = x.view(self.batch_size,1,-1).cuda()
+		#每个batch里面有120个tensor
+		x = x.view(self.batch_size,-1,self.input_size).cuda()
 		#x = x.to(device)
 
-		x,hn = self.lstm(x,(h0,c0))
-
-		x = x.view(-1,256)
+		x,_ = self.lstm(x,(h0,c0))
+		
+		x = x[:,-1,:]
 		#x = x.to(device)
-		x = F.relu(self.fc1(x))
-		x = self.fc2(x)
-
+		#x = F.relu(self.fc1(x))
+		#x = self.fc2(x)
+		x = self.fc1(x)
+		x = F.sigmoid(x)
 		return x
 
 #读取.npy文件
@@ -62,13 +67,14 @@ def get_data(filename,batch_size):
 #forward计算output
 #计算损失以及相应的偏导数(梯度) backward
 #用optimizer进行参数更新 step
-def train(net,input_loader,label_loader,n_epochs=10):
+def train(net,input_loader,label_loader,n_epochs=3):
 	i = 0
 	for epoch in range(n_epochs):
 		total_loss = 0.0
 		for data in zip(input_loader,label_loader):
-			inputs,labels = data[0],data[1]
-			inputs = inputs.float()
+			inputs,labels = data
+			inputs = inputs.long()
+			labels = labels.float()
 			#print(inputs,labels)
 			#采用GPU进行运算
 			#device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -77,11 +83,11 @@ def train(net,input_loader,label_loader,n_epochs=10):
 			#print(type(inputs[0][0][0].item()),type(labels[0].item()))
 
 			#定义优化器
-			optimizer = optim.SGD(net.parameters(),lr=0.004)
+			optimizer = optim.Adam(net.parameters(),lr=0.001)
 			optimizer.zero_grad()
 
 			#定义损失函数
-			cri = nn.CrossEntropyLoss()
+			cri = nn.BCELoss()
 
 			#forward计算损失和梯度
 			outputs = net(inputs_cuda)
@@ -147,9 +153,9 @@ def test(net,input_filename,label_filename,batch_size,k=10000):
 
 
 def main():
-	label_loader = get_data('labels_200000.npy',2)
-	input_loader = get_data('train_50dim.npy',2)
-	ls = net(50,2,256)
+	label_loader = get_data('labels_200000.npy',1)
+	input_loader = get_data('train_pad_40dim.npy',1)
+	ls = net(200,1,128)
 	ls = ls.cuda()
 	train(ls,input_loader,label_loader)
 	return ls
