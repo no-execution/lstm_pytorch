@@ -18,6 +18,10 @@ class net(nn.Module):
 		self.input_size = input_size
 		self.batch_size = batch_size
 		self.hidden_size = hidden_size
+
+		#dropout层
+		self.dropout = nn.Dropout(p=0.5)
+
 		#self.sentence_size = sentence_size
 		self.embedding = nn.Embedding(125084+1,self.input_size,padding_idx=0)
 
@@ -25,31 +29,31 @@ class net(nn.Module):
 		self.lstm = nn.LSTM(self.input_size,self.hidden_size,self.n_layers,batch_first=True)
 
 		#线性部分
-		self.fc1 = nn.Linear(hidden_size,1)
-		#self.fc2 = nn.Linear(128,2)
+		self.fc1 = nn.Linear(hidden_size,64)
+		self.fc2 = nn.Linear(64,1)
 
 	def forward(self,x):
 		#对采用数字表示的sentences进行embedding
 		x = self.embedding(x)
-		#初始化lstm中的各个参数(感觉不包括各个gate的w和b)
-		h0 = torch.zeros(self.n_layers*self.n_directions,self.batch_size,self.hidden_size).cuda()
-		c0 = torch.zeros(self.n_layers*self.n_directions,self.batch_size,self.hidden_size).cuda()
 
-		#device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-		#h0,c0 = h0.to(device),c0.to(device) 
+		#初始化lstm中的各个参数(感觉不包括各个gate的w和b)
+		h0 = (torch.ones(self.n_layers*self.n_directions,self.batch_size,self.hidden_size)*0.5).cuda()
+		c0 = (torch.ones(self.n_layers*self.n_directions,self.batch_size,self.hidden_size)*0.5).cuda()
 
 		#每个batch里面有120个tensor
-		x = x.view(self.batch_size,-1,self.input_size).cuda()
-		#x = x.to(device)
+		x = x.view(self.batch_size,-1,self.input_size)
 
 		x,_ = self.lstm(x,(h0,c0))
 		
 		x = x[:,-1,:]
-		#x = x.to(device)
+		x = self.dropout(x)
+
 		#x = F.relu(self.fc1(x))
 		#x = self.fc2(x)
-		x = self.fc1(x)
-		x = F.sigmoid(x)
+		x = F.relu(self.fc1(x))
+		#x = self.dropout(x)
+		x = F.sigmoid(self.fc2(x))
+
 		return x
 
 #读取.npy文件
@@ -67,7 +71,7 @@ def get_data(filename,batch_size):
 #forward计算output
 #计算损失以及相应的偏导数(梯度) backward
 #用optimizer进行参数更新 step
-def train(net,input_loader,label_loader,n_epochs=3):
+def train(net,input_loader,label_loader,n_epochs=6):
 	i = 0
 	for epoch in range(n_epochs):
 		total_loss = 0.0
@@ -79,7 +83,7 @@ def train(net,input_loader,label_loader,n_epochs=3):
 			#采用GPU进行运算
 			#device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 			#inputs,labels = inputs.to(device),labels.to(device)
-			inputs_cuda,labels_cuda = inputs.cuda(),labels.cuda()
+			inputs,labels = inputs.cuda(),labels.cuda()
 			#print(type(inputs[0][0][0].item()),type(labels[0].item()))
 
 			#定义优化器
@@ -87,11 +91,14 @@ def train(net,input_loader,label_loader,n_epochs=3):
 			optimizer.zero_grad()
 
 			#定义损失函数
+			#cri = nn.CrossEntropyLoss()
 			cri = nn.BCELoss()
 
 			#forward计算损失和梯度
-			outputs = net(inputs_cuda)
-			loss = cri(outputs,labels_cuda)
+			outputs = net(inputs)
+			#print(outputs.size(),outputs,labels_cuda.size())
+			#loss = cri(outputs,labels)
+			loss = cri(outputs.view(net.batch_size),labels)
 			loss.backward(retain_graph=True)
 
 			#bp优化
@@ -99,8 +106,8 @@ def train(net,input_loader,label_loader,n_epochs=3):
 
 			total_loss += loss
 			#显示进度
-			if i % 4000 == 3999:
-				print('[epoch:%d,trained_data:%5d] average loss is : %.3f ' %(epoch+1,i+1,total_loss/4000))
+			if i % 2000 == 1999:
+				print('[epoch:%d,trained_data:%5d] average loss is : %.3f ' %(epoch+1,i+1,total_loss/2000))
 				total_loss = 0.0
 			i += 1
 	print('--------------Finished--------------')
@@ -121,41 +128,18 @@ def test(net,input_filename,label_filename,batch_size,k=10000):
 
 		out = net(inputs)
 		labels = labels.cuda()
-		out = F.sigmoid(out)
+		#out = F.sigmoid(out)
 		outputs = torch.max(out,1)[1]
 		mid = outputs==labels
 		n_right += torch.sum(mid).item()
 
 		i += batch_size
 
-'''
-	#载入保存好的npy文件
-	input_numpy = np.load(input_filename)[:k]
-	label_numpy = np.load(label_filename)[:k]
-
-	#numpy→tensor转换，input从double_float转到float
-	inputs = torch.from_numpy(input_numpy)
-	inputs = inputs.float()
-	labels = torch.from_numpy(label_numpy)
-
-	#使用train好的模型进行预测，得出准确率
-	out = net(inputs)
-	labels = labels.cuda()   #因为放在gpu里跑出来的模型，所以out是tensor.cuda.float,因此labels也要保持相同type
-	out = F.sigmoid(out)
-	outputs = torch.max(out,1)[1]
-	mid = outputs==labels
-	n_right = torch.sum(mid)
-'''
-
-	
-
-
-
 
 def main():
-	label_loader = get_data('labels_200000.npy',1)
-	input_loader = get_data('train_pad_40dim.npy',1)
-	ls = net(200,1,128)
+	label_loader = get_data('labels_200000.npy',4)
+	input_loader = get_data('train_pad_40dim.npy',4)
+	ls = net(300,4,128)
 	ls = ls.cuda()
 	train(ls,input_loader,label_loader)
 	return ls
